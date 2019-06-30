@@ -1,0 +1,7 @@
+[package]
+name = "erki_boy"
+version = "0.1.0"
+authors = ["Erik Sandrén <erik.sandren@dataton.se>"]
+edition = "2018"
+
+[dependencies]
