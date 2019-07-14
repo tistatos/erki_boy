@@ -17,10 +17,11 @@ enum InterruptState {
 pub struct CPU {
     is_halted: bool,
     interrupt_state: InterruptState,
-    bus: MemoryBus,
     pc: u16,
     sp: u16,
     registers: Registers,
+
+    pub bus: MemoryBus,
 }
 
 impl CPU {
@@ -35,7 +36,7 @@ impl CPU {
         }
     }
 
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> u16 {
         let mut instruction_byte = self.bus.read_byte(self.pc);
 
         let mut output = format!("{}: ", self.pc);
@@ -44,6 +45,7 @@ impl CPU {
             output += "0xCB ";
             instruction_byte = self.bus.read_byte(self.pc + 1);
         }
+        let gpu_cycles;
         let next_pc = if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed)
         {
             if instruction != Instruction::NOP {
@@ -62,6 +64,7 @@ impl CPU {
                     InterruptState::Disabled => InterruptState::Disabled,
                 };
             }
+            gpu_cycles = cycles;
             pc
         } else {
             let description = format!(
@@ -72,6 +75,8 @@ impl CPU {
             panic!("Unkown instruction found for: {}", description);
         };
         self.pc = next_pc;
+
+        return gpu_cycles;
     }
 
     fn jump(&mut self, should_jump: bool) -> (u16, u16) {

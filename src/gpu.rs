@@ -96,9 +96,9 @@ pub struct GPU {
      * flip y
      * palette
      */
-    screen_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
-    video_ram: [u8; VIDEO_RAM_SIZE],
-    cycles: u16,
+    pub screen_buffer: [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
+    pub video_ram: [u8; VIDEO_RAM_SIZE],
+    pub cycles: u16,
 
     //LCD Control
     pub lcd_display_enabled: bool, //LCD is complete on/off
@@ -120,8 +120,9 @@ pub struct GPU {
     //vblank_interrupt: bool,
     //hblank_interrupt: bool,
     //coincidence_flag: bool,
-    //lcd_y_coordinate: u8, //current line being drawn
+    lcd_y_coordinate: u8, //current line being drawn
     lcd_mode: Mode, // LCD current mode
+    mode_cycles: u16,
 
     pub window_tile_map: TileMap, //Window tile map location
     pub window_display_enabled: bool,
@@ -147,8 +148,12 @@ impl GPU {
             obj_display_enable: false,
             obj_0_palette: Palette::new(),
             obj_1_palette: Palette::new(),
+
             lcd_mode: Mode::HBlank,
+            mode_cycles: 0,
+            lcd_y_coordinate: 0,
             lcd_y_compare: 0,
+
             window_tile_map: TileMap::Ox9800,
             window_display_enabled: false,
             window_x: 0,
@@ -162,7 +167,57 @@ impl GPU {
         if !self.lcd_display_enabled {
             return;
         }
-        self.cycles += cycles;
+        self.cycles.wrapping_add(cycles);
+        self.mode_cycles += cycles;
+
+        match self.lcd_mode {
+            Mode::OAMAccess => {
+                if self.mode_cycles >= 80 {
+                    self.lcd_mode = Mode::VRAMAccess;
+                    println!("VRAMACESS");
+                    self.mode_cycles = self.mode_cycles % 80;
+                }
+            },
+            Mode::VRAMAccess => {
+                if self.mode_cycles >= 172 {
+                    self.lcd_mode = Mode::HBlank;
+                    println!("HBLANK");
+                    self.mode_cycles = self.mode_cycles % 172;
+                    //TODO: add vram related interrupts
+                }
+            },
+            Mode::HBlank => {
+                if self.mode_cycles >= 200 {
+
+                    self.mode_cycles = self.mode_cycles % 200;
+                    self.lcd_y_coordinate += 1;
+
+                    if self.lcd_y_coordinate >= 144 {
+                        self.lcd_mode = Mode::VBlank;
+                        println!("VBLANK");
+                        //TODO: add vblank related interrupts
+                    }
+                    else {
+                        self.lcd_mode = Mode::OAMAccess;
+                        println!("OAMACCESS");
+                        //TODO: add hblank related interrupts
+                    }
+                }
+            },
+            Mode::VBlank => {
+                if self.mode_cycles >= 456 {
+                    self.mode_cycles = self.mode_cycles % 456;
+                    self.lcd_y_coordinate += 1;
+
+                    if self.lcd_y_coordinate == 154 {
+                        self.lcd_mode = Mode::OAMAccess;
+                        println!("OAMACCESS");
+                        self.lcd_y_coordinate = 0;
+                        //TODO: add vblank related interrupts
+                    }
+                }
+            }
+        }
     }
 
     pub fn write_vram(&mut self, address: usize, value: u8) {

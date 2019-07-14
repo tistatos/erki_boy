@@ -69,7 +69,7 @@ pub struct MemoryBus {
     /* Interrupt Enable Register    FFFF-FFFF
      * High RAM (RAM on CPU chip)   FF80-FFFE
      * Unusable                     FF4C-FF7F
-     * I/O Ports                    FF00-FF4B
+     * Memory Maped I/O             FF00-FF4B
      * Unusable                     FEA0-FEFF
      * Sprite Attrib Memory (OAM)   FE00-FE9F
      * Echo of Internal RAM         E000-FDFF
@@ -133,7 +133,11 @@ impl MemoryBus {
             ROM_SWITCHABLE_BANK_START...ROM_SWITCHABLE_BANK_END => {
                 self.switchable_rom_bank[address - ROM_SWITCHABLE_BANK_START]
             }
-            // VIDEO_RAM_START...VIDEO_RAM_END => self.gpu.video_ram[address - VIDEO_RAM_START], FIXME: cannot be read?
+            VIDEO_RAM_START...VIDEO_RAM_END => {
+                //FIXME: should the be allowed to be read?
+                panic!("Attempt to read from video ram");
+                self.gpu.video_ram[address - VIDEO_RAM_START]
+            },
             EXTERNAL_RAM_START...EXTERNAL_RAM_END => {
                 self.external_ram[address - EXTERNAL_RAM_START]
             }
@@ -142,6 +146,7 @@ impl MemoryBus {
             OAM_START...OAM_END => self.oam[address - OAM_START],
             IO_REGISTERS_START...IO_REGISTERS_END => self.read_from_io(address),
             HRAM_START...HRAM_END => self.high_ram[address - HRAM_START],
+            IO_REGISTERS_START...IO_REGISTERS_END => self.read_from_io(address),
             _ => {
                 panic!("Error reading from memory location 0x{:X}", address);
             }
@@ -165,7 +170,7 @@ impl MemoryBus {
             OAM_START...OAM_END => self.oam[address - OAM_START] = byte,
             IO_REGISTERS_START...IO_REGISTERS_START => self.write_to_io(address, byte),
             HRAM_START...HRAM_END => self.high_ram[address - HRAM_START] = byte,
-
+            IO_REGISTERS_START...IO_REGISTERS_END => self.write_to_io(address, byte),
             _ => panic!("Error writing to memory location 0x{:X}", address),
         };
     }
@@ -191,6 +196,7 @@ impl MemoryBus {
         }
         return 0;
     }
+
     fn write_to_io(&mut self, address: usize, byte: u8) {
         match address {
             0xFF00 => {
@@ -246,6 +252,7 @@ impl MemoryBus {
             0xFF26 => { /* NR 52 - Sound on/off */ }
 
             0xFF30...0xFF3F => { /* Wave Pattern RAM */ } //FIXME: find documentation for this
+
             0xFF40 => {
                 //LCDC - LCD Control
                 self.gpu.lcd_display_enabled = (byte >> 7) == 1;
@@ -296,7 +303,9 @@ impl MemoryBus {
                 /* LYC - LY Compare */
                 self.gpu.lcd_y_compare = byte;
             }
-            0xFF46 => { /* DMA - DMA Transfer and Start Address Write only*/ }
+            0xFF46 => {
+                /* DMA - DMA Transfer and Start Address Write only*/
+            }
 
             0xFF47 => {
                 /* BGP - BG & Window Palette Data */
