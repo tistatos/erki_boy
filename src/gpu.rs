@@ -99,8 +99,8 @@ impl std::convert::From<u8> for Color {
         match value {
             0 => Color::White,
             1 => Color::LightGray,
-            3 => Color::DarkGray,
-            4 => Color::Black,
+            2 => Color::DarkGray,
+            3 => Color::Black,
             _ => panic!("Failed to determine palette color: {}", value),
         }
     }
@@ -119,7 +119,7 @@ impl Default for ObjectPalette {
 }
 
 #[derive(Copy, Clone)]
-pub struct Palette(Color, Color, Color, Color);
+pub struct Palette(pub Color, pub Color, pub Color, pub Color);
 impl Palette {
     fn new() -> Palette {
         Palette(
@@ -214,8 +214,8 @@ impl GPU {
     pub fn new() -> GPU {
         GPU {
             screen_buffer: [0; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
-            video_ram: [0; VIDEO_RAM_SIZE],
-            oam: [0; OAM_SIZE],
+            video_ram: [0xFF; VIDEO_RAM_SIZE],
+            oam: [0xFF; OAM_SIZE],
             cycles: 0,
             lcd_display_enabled: false,
             background_window_tile_data: TileData::Ox8000,
@@ -317,8 +317,8 @@ impl GPU {
 
             let value = match (lsb != 0, msb != 0) {
                 (true, true) => TilePixelValue::Three,
-                (true, false) => TilePixelValue::Two,
-                (false, true) => TilePixelValue::One,
+                (false, true) => TilePixelValue::Two,
+                (true, false) => TilePixelValue::One,
                 (false, false) => TilePixelValue::Zero
             };
 
@@ -349,7 +349,7 @@ impl GPU {
                 };
                 data.flip_x = (value & 0x20) != 0;
                 data.flip_y = (value & 0x40) != 0;
-                data.priority = (value & 0x40) != 0;
+                data.priority = (value & 0x80) != 0;
             }
         }
 

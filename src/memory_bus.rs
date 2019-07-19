@@ -1,4 +1,4 @@
-use crate::gpu::{ObjSize, TileData, TileMap, GPU};
+use crate::gpu::{ObjSize, TileData, TileMap, GPU, Color};
 
 const BOOT_ROM_START: usize = 0x00;
 const BOOT_ROM_END: usize = 0xFF;
@@ -10,7 +10,7 @@ const ROM_BANK_SIZE: usize = ROM_BANK_END - ROM_BANK_START + 1;
 
 const ROM_SWITCHABLE_BANK_START: usize = 0x4000;
 const ROM_SWITCHABLE_BANK_END: usize = 0x7FFF;
-const ROM_SWITCHABLE_BANK_SIZE: usize = ROM_SWITCHABLE_BANK_END - ROM_BANK_START + 1;
+const ROM_SWITCHABLE_BANK_SIZE: usize = ROM_SWITCHABLE_BANK_END - ROM_SWITCHABLE_BANK_START + 1;
 
 pub const VIDEO_RAM_START: usize = 0x8000;
 const VIDEO_RAM_END: usize = 0x9FFF;
@@ -101,17 +101,20 @@ impl MemoryBus {
             boot_rom
         });
 
-        //Load non-switchable bank and first part of switchable rom data
-        let mut rom_bank = [0; ROM_BANK_SIZE];
-        let mut switchable_rom_bank = [0; ROM_SWITCHABLE_BANK_SIZE];
+        let mut rom_bank = [0xFF; ROM_BANK_SIZE];
+        rom_bank.copy_from_slice(&game_rom_buffer[..=ROM_BANK_END]);
+
+        let mut switchable_rom_bank = [0xFF; ROM_SWITCHABLE_BANK_SIZE];
+        switchable_rom_bank.copy_from_slice(&game_rom_buffer[ROM_SWITCHABLE_BANK_START..=ROM_SWITCHABLE_BANK_END]);
+
 
         MemoryBus {
             boot_rom,
             rom_bank,
             switchable_rom_bank,
-            external_ram: [0; EXTERNAL_RAM_SIZE],
-            working_ram: [0; WORKING_RAM_SIZE],
-            high_ram: [0; HRAM_SIZE],
+            external_ram: [0xFF; EXTERNAL_RAM_SIZE],
+            working_ram: [0xFF; WORKING_RAM_SIZE],
+            high_ram: [0xFF; HRAM_SIZE],
 
             gpu: GPU::new(),
         }
@@ -146,7 +149,6 @@ impl MemoryBus {
             OAM_START...OAM_END => self.gpu.oam[address - OAM_START],
             IO_REGISTERS_START...IO_REGISTERS_END => self.read_from_io(address),
             HRAM_START...HRAM_END => self.high_ram[address - HRAM_START],
-            IO_REGISTERS_START...IO_REGISTERS_END => self.read_from_io(address),
             _ => {
                 panic!("Error reading from memory location 0x{:X}", address);
             }
@@ -159,7 +161,9 @@ impl MemoryBus {
             ROM_SWITCHABLE_BANK_START...ROM_SWITCHABLE_BANK_END => {
                 self.switchable_rom_bank[address - ROM_SWITCHABLE_BANK_START] = byte
             }
-            VIDEO_RAM_START...VIDEO_RAM_END => self.gpu.write_vram(address - VIDEO_RAM_START, byte),
+            VIDEO_RAM_START...VIDEO_RAM_END => {
+                self.gpu.write_vram(address - VIDEO_RAM_START, byte)
+            }
             EXTERNAL_RAM_START...EXTERNAL_RAM_END => {
                 self.external_ram[address - EXTERNAL_RAM_START] = byte
             }
@@ -369,5 +373,16 @@ mod tests {
         mem.write_byte((ECHO_RAM_START + 5) as u16, value);
         let memory_value = mem.read_byte((WORKING_RAM_START + 5) as u16);
         assert_eq!(value, memory_value);
+    }
+
+    #[test]
+    fn write_palette_data() {
+        let mut mem = MemoryBus::new_empty_memory();
+        let value = 0xFC;
+        mem.write_byte((0xFF47), value);
+        assert_eq!(mem.gpu.background_window_palette.0 as u8, Color::White as u8);
+        assert_eq!(mem.gpu.background_window_palette.1 as u8, Color::Black as u8);
+        assert_eq!(mem.gpu.background_window_palette.2 as u8, Color::Black as u8);
+        assert_eq!(mem.gpu.background_window_palette.3 as u8, Color::Black as u8);
     }
 }
