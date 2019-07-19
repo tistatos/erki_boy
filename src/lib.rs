@@ -1,3 +1,3 @@
 pub mod cpu;
-mod gpu;
+pub mod gpu;
 mod memory_bus;

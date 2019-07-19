@@ -14,6 +14,8 @@ enum InterruptState {
     Disabling,
 }
 
+
+
 pub struct CPU {
     is_halted: bool,
     interrupt_state: InterruptState,
@@ -49,10 +51,10 @@ impl CPU {
         let next_pc = if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed)
         {
             if instruction != Instruction::NOP {
-                println!(
-                    "{}{:?}(0x{:X})\t {:?}, sp: 0x{:X}",
-                    output, instruction, instruction_byte, self.registers, self.sp
-                );
+                //println!(
+                    //"{}{:?}(0x{:X})\t {:?}, sp: 0x{:X}",
+                    //output, instruction, instruction_byte, self.registers, self.sp
+                //);
             }
             let (pc, cycles) = self.execute(instruction);
             //FIXME: this should be simpler than this
@@ -75,7 +77,7 @@ impl CPU {
             panic!("Unkown instruction found for: {}", description);
         };
         self.pc = next_pc;
-
+        self.bus.step(gpu_cycles);
         return gpu_cycles;
     }
 

@@ -12,7 +12,7 @@ const ROM_SWITCHABLE_BANK_START: usize = 0x4000;
 const ROM_SWITCHABLE_BANK_END: usize = 0x7FFF;
 const ROM_SWITCHABLE_BANK_SIZE: usize = ROM_SWITCHABLE_BANK_END - ROM_BANK_START + 1;
 
-const VIDEO_RAM_START: usize = 0x8000;
+pub const VIDEO_RAM_START: usize = 0x8000;
 const VIDEO_RAM_END: usize = 0x9FFF;
 pub const VIDEO_RAM_SIZE: usize = VIDEO_RAM_END - VIDEO_RAM_START + 1;
 
@@ -30,7 +30,7 @@ const ECHO_RAM_SIZE: usize = ECHO_RAM_END - ECHO_RAM_START + 1;
 
 const OAM_START: usize = 0xFE00;
 const OAM_END: usize = 0xFE9F;
-const OAM_SIZE: usize = OAM_END - OAM_START + 1;
+pub const OAM_SIZE: usize = OAM_END - OAM_START + 1;
 
 const IO_REGISTERS_START: usize = 0xFF00;
 const IO_REGISTERS_END: usize = 0xFF7F;
@@ -84,7 +84,6 @@ pub struct MemoryBus {
     switchable_rom_bank: [u8; ROM_SWITCHABLE_BANK_SIZE],
     external_ram: [u8; EXTERNAL_RAM_SIZE],
     working_ram: [u8; WORKING_RAM_SIZE],
-    oam: [u8; OAM_SIZE],
     high_ram: [u8; HRAM_SIZE],
 
     pub gpu: GPU,
@@ -112,11 +111,14 @@ impl MemoryBus {
             switchable_rom_bank,
             external_ram: [0; EXTERNAL_RAM_SIZE],
             working_ram: [0; WORKING_RAM_SIZE],
-            oam: [0; OAM_SIZE],
             high_ram: [0; HRAM_SIZE],
 
             gpu: GPU::new(),
         }
+    }
+
+    pub fn step(&mut self, cycles: u16) {
+        self.gpu.step(cycles);
     }
 
     pub fn read_byte(&self, address: u16) -> u8 {
@@ -134,8 +136,6 @@ impl MemoryBus {
                 self.switchable_rom_bank[address - ROM_SWITCHABLE_BANK_START]
             }
             VIDEO_RAM_START...VIDEO_RAM_END => {
-                //FIXME: should the be allowed to be read?
-                panic!("Attempt to read from video ram");
                 self.gpu.video_ram[address - VIDEO_RAM_START]
             },
             EXTERNAL_RAM_START...EXTERNAL_RAM_END => {
@@ -143,7 +143,7 @@ impl MemoryBus {
             }
             WORKING_RAM_START...WORKING_RAM_END => self.working_ram[address - WORKING_RAM_START],
             ECHO_RAM_START...ECHO_RAM_END => self.working_ram[address - ECHO_RAM_START],
-            OAM_START...OAM_END => self.oam[address - OAM_START],
+            OAM_START...OAM_END => self.gpu.oam[address - OAM_START],
             IO_REGISTERS_START...IO_REGISTERS_END => self.read_from_io(address),
             HRAM_START...HRAM_END => self.high_ram[address - HRAM_START],
             IO_REGISTERS_START...IO_REGISTERS_END => self.read_from_io(address),
@@ -167,7 +167,7 @@ impl MemoryBus {
                 self.working_ram[address - WORKING_RAM_START] = byte
             }
             ECHO_RAM_START...ECHO_RAM_END => self.working_ram[address - ECHO_RAM_START] = byte,
-            OAM_START...OAM_END => self.oam[address - OAM_START] = byte,
+            OAM_START...OAM_END => self.gpu.write_oam((address - OAM_START), byte),
             IO_REGISTERS_START...IO_REGISTERS_START => self.write_to_io(address, byte),
             HRAM_START...HRAM_END => self.high_ram[address - HRAM_START] = byte,
             IO_REGISTERS_START...IO_REGISTERS_END => self.write_to_io(address, byte),
@@ -187,7 +187,21 @@ impl MemoryBus {
             0xFF06 => { /* TMA - Timer modulo */ }
             0xFF07 => { /* TAC - Timer control */ }
 
-            0xFF44 => { /* LY - LCDC Y-coord Read only*/ }
+            0xFF40 => {
+                return
+                    (self.gpu.lcd_display_enabled as u8)                                << 7 |
+                    ((self.gpu.window_tile_map == TileMap::Ox9C00) as u8)               << 6 |
+                    (self.gpu.window_display_enabled as u8)                             << 5 |
+                    ((self.gpu.background_window_tile_data  == TileData::Ox8000) as u8) << 4 |
+                    ((self.gpu.background_tile_map == TileMap::Ox9C00) as u8)           << 3 |
+                    ((self.gpu.obj_size == ObjSize::Size8x16) as u8)                    << 2 |
+                    (self.gpu.obj_display_enable as u8)                                 << 1 |
+                    self.gpu.background_display_enabled as u8;
+            }
+
+            0xFF42 => { return self.gpu.scroll_y; }
+            0xFF43 => { return self.gpu.scroll_x; }
+            0xFF44 => { return self.gpu.lcd_y_coordinate; }
 
             0xFF0F => { /* IF - Interrupt Flag */ }
             _ => {
@@ -256,29 +270,35 @@ impl MemoryBus {
             0xFF40 => {
                 //LCDC - LCD Control
                 self.gpu.lcd_display_enabled = (byte >> 7) == 1;
+                if self.gpu.lcd_display_enabled {
+                    println!("Display enabled");
+                }
                 self.gpu.window_tile_map = if ((byte >> 6) & 0b1) == 1 {
-                    TileMap::Ox9800
-                } else {
                     TileMap::Ox9C00
+                } else {
+                    TileMap::Ox9800
                 };
                 self.gpu.window_display_enabled = ((byte >> 5) & 0b1) == 1;
                 self.gpu.background_window_tile_data = if ((byte >> 4) & 0b1) == 1 {
-                    TileData::Ox8800
-                } else {
                     TileData::Ox8000
+                } else {
+                    TileData::Ox8800
                 };
                 self.gpu.background_tile_map = if ((byte >> 3) & 0b1) == 1 {
-                    TileMap::Ox9800
-                } else {
                     TileMap::Ox9C00
+                } else {
+                    TileMap::Ox9800
                 };
                 self.gpu.obj_size = if ((byte >> 2) & 0b1) == 1 {
-                    ObjSize::Size8x8
-                } else {
                     ObjSize::Size8x16
+                } else {
+                    ObjSize::Size8x8
                 };
                 self.gpu.obj_display_enable = ((byte >> 1) & 0b1) == 1;
                 self.gpu.background_display_enabled = (byte & 0b1) == 1;
+                if self.gpu.background_display_enabled {
+                    println!("Background enabled");
+                }
             }
             0xFF41 => {
                 /* STAT - LCDC Status */
