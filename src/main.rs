@@ -62,5 +62,15 @@ fn main() {
             window.update_with_buffer(&buffer).unwrap();
             cycles_this_frame = 0;
         }
+
+        window.get_keys().map(|keys| {
+            for k in keys {
+                match k {
+                    Key::O => dmg_cpu.debug_output(),
+                    _ => {}
+                }
+
+            }
+        });
     }
 }

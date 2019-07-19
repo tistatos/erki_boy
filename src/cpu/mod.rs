@@ -38,24 +38,31 @@ impl CPU {
         }
     }
 
-    pub fn step(&mut self) -> u16 {
+    pub fn debug_output(&self) {
         let mut instruction_byte = self.bus.read_byte(self.pc);
-
-        let mut output = format!("{}: ", self.pc);
+        let mut output = format!("PC:0x{:04X}: ", self.pc);
         let prefixed = instruction_byte == 0xCB;
         if prefixed {
             output += "0xCB ";
             instruction_byte = self.bus.read_byte(self.pc + 1);
         }
+        if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed) {
+            println!( "{}{:?}(0x{:X})\t {:?}, sp: 0x{:X}",
+                    output, instruction, instruction_byte, self.registers, self.sp
+            );
+        }
+    }
+
+    pub fn step(&mut self) -> u16 {
+        let mut instruction_byte = self.bus.read_byte(self.pc);
+
+        let prefixed = instruction_byte == 0xCB;
+        if prefixed {
+            instruction_byte = self.bus.read_byte(self.pc + 1);
+        }
         let gpu_cycles;
         let next_pc = if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed)
         {
-            if instruction != Instruction::NOP {
-                //println!(
-                    //"{}{:?}(0x{:X})\t {:?}, sp: 0x{:X}",
-                    //output, instruction, instruction_byte, self.registers, self.sp
-                //);
-            }
             let (pc, cycles) = self.execute(instruction);
             //FIXME: this should be simpler than this
             if instruction_byte != 0xF3 && instruction_byte != 0xFB {
