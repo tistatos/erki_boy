@@ -473,8 +473,7 @@ impl CPU {
                         self.registers.a = self.add_without_carry(self.read_next_byte());
                     }
                     ArithmeticTarget::HLI => {
-                        let result = self.add_without_carry(self.read_byte_at_hl());
-                        self.write_byte_at_hl(result);
+                        self.registers.a = self.add_without_carry(self.read_byte_at_hl());
                     }
                 }
                 if register == ArithmeticTarget::D8 {
@@ -532,8 +531,7 @@ impl CPU {
                         self.registers.a = self.sub_without_carry(self.read_next_byte());
                     }
                     ArithmeticTarget::HLI => {
-                        let result = self.sub_without_carry(self.read_byte_at_hl());
-                        self.write_byte_at_hl(result);
+                        self.registers.a = self.sub_without_carry(self.read_byte_at_hl());
                     }
                 }
                 if register == ArithmeticTarget::D8 {
@@ -1646,10 +1644,10 @@ mod tests {
         fn load_8bit_value_to_b() {
             let mut cpu = CPU::new(None, vec![0; 0x10000]);
             cpu.bus.write_byte(0, 0x06);
-            cpu.bus.write_byte(1, 0x0F);
+            cpu.bus.write_byte(1, 0x19);
             cpu.step();
             assert_eq!(cpu.pc, 2);
-            assert_eq!(cpu.registers.b, 15);
+            assert_eq!(cpu.registers.b, 25);
         }
 
         #[test]
