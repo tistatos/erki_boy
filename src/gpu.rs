@@ -453,7 +453,7 @@ impl GPU {
                                 self.screen_buffer[screen_offset] = color as u8;
                                 self.screen_buffer[screen_offset + 1] = color as u8;
                                 self.screen_buffer[screen_offset + 2] = color as u8;
-                                self.screen_buffer[screen_offset + 3] = color as u8;
+                                self.screen_buffer[screen_offset + 3] = 255;
                             }
                             screen_offset += 4;
                     }
