@@ -1,4 +1,5 @@
 use super::flags_register::FlagsRegister;
+use std::fmt;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Registers {
@@ -10,6 +11,13 @@ pub struct Registers {
     pub f: FlagsRegister, //Flags register, lower 4 bits are always 0
     pub h: u8,
     pub l: u8,
+}
+
+impl fmt::Display for Registers {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "A: {} B: {} C: {} D: {} E: {} H:{} L: {} F: {}",
+        self.a, self.b, self.c, self.d, self.e, self.h, self.l, self.f)
+    }
 }
 
 impl Registers {

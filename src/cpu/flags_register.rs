@@ -1,9 +1,11 @@
+use std::fmt;
+
 const ZERO_FLAG_BYTE: u8 = 7;
 const SUBTRACT_FLAG_BYTE: u8 = 6;
 const HALF_CARRY_FLAG_BYTE: u8 = 5;
 const CARRY_FLAG_BYTE: u8 = 4;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, PartialEq)]
 pub struct FlagsRegister {
     pub zero: bool,
     pub subtract: bool,
@@ -19,6 +21,31 @@ impl FlagsRegister {
             half_carry: false,
             carry: false,
         }
+    }
+}
+
+impl fmt::Display for FlagsRegister {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut values = format!("(");
+        if self.zero { values += "Z"; } else { values += " ";}
+        if self.subtract { values += "N"; } else { values += " ";}
+        if self.half_carry { values += "H"; } else { values += " ";}
+        if self.carry { values += "C"; } else { values += " ";}
+        values += ")";
+
+        write!(f, "{}", values)
+    }
+}
+impl fmt::Debug for FlagsRegister {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut values = format!("(");
+        if self.zero { values += "Z"; } else { values += " ";}
+        if self.subtract { values += "N"; } else { values += " ";}
+        if self.half_carry { values += "H"; } else { values += " ";}
+        if self.carry { values += "C"; } else { values += " ";}
+        values += ")";
+
+        write!(f, "{}", values)
     }
 }
 
