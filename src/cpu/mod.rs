@@ -5,6 +5,7 @@ pub mod registers;
 use self::instruction::*;
 use self::registers::Registers;
 use crate::memory_bus::MemoryBus;
+use crate::interrupts::{InterruptLocation};
 
 #[derive(Debug, PartialEq)]
 enum InterruptState {
@@ -13,8 +14,6 @@ enum InterruptState {
     Enabling,
     Disabling,
 }
-
-
 
 pub struct CPU {
     is_halted: bool,
@@ -30,11 +29,11 @@ impl CPU {
     pub fn new(boot_room: Option<Vec<u8>>, game_rom: Vec<u8>) -> CPU {
         CPU {
             is_halted: false,
-            interrupt_state: InterruptState::Enabled, //FIXME: what should default value be?
+            interrupt_state: InterruptState::Enabled,
             bus: MemoryBus::new(boot_room, game_rom),
             pc: 0,
             sp: 0,
-            registers: Registers::new(),
+            registers: Registers::new()
         }
     }
 
@@ -47,21 +46,27 @@ impl CPU {
             instruction_byte = self.bus.read_byte(self.pc + 1);
         }
         if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed) {
-            println!( "{}{:?}(0x{:X})\t {:?}, sp: 0x{:X}",
-                    output, instruction, instruction_byte, self.registers, self.sp
-            );
+
+            output += format!("{:?} (0x{:02X})", instruction, instruction_byte).as_str();
+            let instruction_length = instruction.byte_length();
+            if instruction_length == 2{
+                output += format!(" {} ", self.bus.read_byte(self.pc + 1)).as_str();
+
+            }
+            println!("{}\t {:?}, sp: 0x{:X}",
+                    output, self.registers, self.sp);
         }
     }
 
     pub fn step(&mut self) -> u16 {
         let mut instruction_byte = self.bus.read_byte(self.pc);
-
         let prefixed = instruction_byte == 0xCB;
         if prefixed {
             instruction_byte = self.bus.read_byte(self.pc + 1);
         }
-        let gpu_cycles;
-        let next_pc = if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed)
+
+
+        let (next_pc, mut cycles) = if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed)
         {
             let (pc, cycles) = self.execute(instruction);
             //FIXME: this should be simpler than this
@@ -73,8 +78,7 @@ impl CPU {
                     InterruptState::Disabled => InterruptState::Disabled,
                 };
             }
-            gpu_cycles = cycles;
-            pc
+            (pc, cycles)
         } else {
             let description = format!(
                 "0x{}{:x}",
@@ -83,9 +87,58 @@ impl CPU {
             );
             panic!("Unkown instruction found for: {}", description);
         };
-        self.pc = next_pc;
-        self.bus.step(gpu_cycles);
-        return gpu_cycles;
+
+        self.bus.step(cycles);
+        if self.bus.interrupted() {
+            self.is_halted = false;
+        }
+        if !self.is_halted {
+            self.pc = next_pc; //By not increasing PC, we are essentially spinlocking here until the interrupt occurs
+        }
+
+        let mut interrupted = false;
+        if self.interrupt_state == InterruptState::Enabled {
+            if self.bus.interrupts_enabled.vertical_blank_interrupt
+                && self.bus.interrupt_flags.vertical_blank_interrupt {
+                println!("VBlank interrupt");
+                self.interrupt(InterruptLocation::VBlank);
+                interrupted = true;
+                self.bus.interrupt_flags.vertical_blank_interrupt = false;
+            }
+            if self.bus.interrupts_enabled.lcd_c_interrupt
+                && self.bus.interrupt_flags.lcd_c_interrupt {
+                println!("LCD interrupt");
+                self.interrupt(InterruptLocation::LCD);
+                interrupted = true;
+                self.bus.interrupt_flags.lcd_c_interrupt = false;
+            }
+            if self.bus.interrupts_enabled.timer_interrupt
+                && self.bus.interrupt_flags.timer_interrupt {
+                println!("timer interrupt");
+                self.interrupt(InterruptLocation::Timer);
+                interrupted = true;
+                self.bus.interrupt_flags.timer_interrupt = false;
+            }
+        }
+        if interrupted {
+            cycles += 12;
+        }
+
+        return cycles;
+    }
+
+    pub fn ei_is_on(&self) -> bool {
+        return
+            self.interrupt_state == InterruptState::Enabled ||
+            self.interrupt_state == InterruptState::Enabling;
+    }
+
+    fn interrupt(&mut self, location: InterruptLocation) {
+        let inter_loc = location as u16;
+        self.interrupt_state = InterruptState::Disabled;
+        self.push(self.pc);
+        self.pc = inter_loc;
+        self.bus.step(12);
     }
 
     fn jump(&mut self, should_jump: bool) -> (u16, u16) {
@@ -172,6 +225,13 @@ impl CPU {
             Instruction::NOP => (self.pc.wrapping_add(1), 4),
             Instruction::HALT => {
                 self.is_halted = true;
+                (self.pc.wrapping_add(1), 4)
+            }
+            Instruction::STOP => {
+                if !self.is_halted {
+                    println!("STOP called at 0x{:X}", self.pc+1);
+                }
+                self.is_halted = true; //FIXME: perhaps this should have its own state?
                 (self.pc.wrapping_add(1), 4)
             }
             Instruction::EI => {
@@ -1278,29 +1338,34 @@ impl CPU {
         self.registers.f.half_carry = true;
     }
 
-    fn decimal_adjust(&mut self, mut value: u8) -> u8 {
-        let mut did_overflow = false;
-        if !self.registers.f.subtract {
-            if self.registers.f.half_carry || (value & 0xF) > 9 {
-                let (new_value, overflow) = value.overflowing_add(6);
-                value = new_value;
-                did_overflow = overflow;
+    fn decimal_adjust(&mut self, value: u8) -> u8 {
+
+        let mut carry = false;
+
+        let result = if !self.registers.f.subtract {
+            let mut result = value;
+            if self.registers.f.carry || value > 0x99 {
+                result = result.wrapping_add(0x60);
+                carry = true;
             }
-            if self.registers.f.carry || value > 0x9F {
-                let (new_value, overflow) = value.overflowing_add(0x60);
-                value = new_value;
-                did_overflow = overflow;
+            if self.registers.f.half_carry || (value & 0x0F) > 0x09 {
+                result = result.wrapping_add(0x06);
             }
-        } else {
-            if self.registers.f.half_carry {
-                value = value.wrapping_sub(6);
-            }
-            if self.registers.f.carry {
-                value = value.wrapping_sub(0x60);
-            }
+            result
+        } else if self.registers.f.carry {
+            carry = true;
+            let add = if self.registers.f.half_carry { 0x9A } else { 0xA0 };
+            value.wrapping_add(add)
         }
-        self.registers.f.carry = did_overflow;
-        value
+        else if self.registers.f.half_carry {
+            value.wrapping_add(0xFA)
+        }
+        else {
+            value
+        };
+
+        self.registers.f.carry = carry;
+        result
     }
 
     fn bit_reset(&mut self, value: u8, bit_position: BitPosition) -> u8 {
@@ -1398,7 +1463,7 @@ impl CPU {
     fn decrement_8bit(&mut self, value: u8) -> u8 {
         let result = value.wrapping_sub(1);
         self.registers.f.zero = result == 0;
-        self.registers.f.subtract = false;
+        self.registers.f.subtract = true;
         self.registers.f.half_carry = value & 0xF == 0xF;
         result
     }

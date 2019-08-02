@@ -2,6 +2,7 @@
 pub enum Instruction {
     NOP,
     HALT,
+    STOP,
 
     DI,
     EI,
@@ -529,8 +530,6 @@ impl Instruction {
             0xFD => Some(Instruction::SET(PrefixTarget::L, BitPosition::B7)),
             0xFE => Some(Instruction::SET(PrefixTarget::HLI, BitPosition::B7)),
             0xFF => Some(Instruction::SET(PrefixTarget::A, BitPosition::B7)),
-
-            _ => None,
         }
     }
 
@@ -901,10 +900,6 @@ impl Instruction {
                 LoadByteTarget::HLI,
                 LoadByteSource::L,
             ))),
-            0x76 => Some(Instruction::LD(LoadType::Byte(
-                LoadByteTarget::HLI,
-                LoadByteSource::HLI,
-            ))),
             0x77 => Some(Instruction::LD(LoadType::Byte(
                 LoadByteTarget::HLI,
                 LoadByteSource::A,
@@ -979,6 +974,8 @@ impl Instruction {
             0xD9 => Some(Instruction::RETI),
             0xF3 => Some(Instruction::DI),
             0xFB => Some(Instruction::EI),
+            0x76 => Some(Instruction::HALT),
+            0x10 => Some(Instruction::STOP),
 
             0x01 => Some(Instruction::LD(LoadType::Word(LoadWordTarget::BC))),
             0x11 => Some(Instruction::LD(LoadType::Word(LoadWordTarget::DE))),
@@ -1034,6 +1031,109 @@ impl Instruction {
             0x38 => Some(Instruction::JR(JumpTest::Carry)),
 
             _ => None,
+        }
+    }
+
+    pub fn byte_length(&self) -> u8 {
+        match self {
+            Instruction::NOP => 1,
+            Instruction::HALT => 2,
+            Instruction::STOP => 2,
+
+            Instruction::DI => 1,
+            Instruction::EI => 1,
+            Instruction::RETI => 1,
+
+            Instruction::CCF => 1,
+            Instruction::SCF => 1,
+            Instruction::RRA => 1,
+            Instruction::RLA => 1,
+            Instruction::RRCA => 1,
+            Instruction::RLCA => 1,
+            Instruction::CPL => 1,
+            Instruction::ADDSP => 2,
+            Instruction::DAA => 1,
+
+            Instruction::RST(_) => 1,
+            Instruction::CALL(_) => 3,
+            Instruction::RET(_) => 1,
+            Instruction::PUSH(_) => 1,
+            Instruction::POP(_) => 1,
+
+            Instruction::LD(load_type) => {
+                match load_type {
+                    LoadType::IndirectFromA(indir) => {
+                        match indir {
+                            Indirect::LastByte => 2,
+                            Indirect::Word => 3,
+                            _ => 1
+                        }
+                    }
+                    LoadType::AFromIndirect(indir) => {
+                        match indir {
+                            Indirect::LastByte => 2,
+                            Indirect::Word => 3,
+                            _ => 1
+                        }
+                    }
+                    LoadType::Byte(_, source) => {
+                        match source {
+                            LoadByteSource::D8 => 2,
+                            _ => 1
+                        }
+                    }
+                    LoadType::Word(_) => 3,
+                    LoadType::ByteAddressFromA => 2,
+                    LoadType::AFromByteAddress => 2,
+                    LoadType::IndirectFromSP => 3,
+                    LoadType::HLFromSPN => 2,
+                    LoadType::SPFromHL => 1
+                }
+
+            }
+            Instruction::JP(_) => 3,
+            Instruction::JR(_) => 2,
+            Instruction::JPHL => 1,
+
+            Instruction::ADC(ArithmeticTarget::D8) => 2,
+            Instruction::ADC(_) => 1,
+            Instruction::ADD(ArithmeticTarget::D8) => 2,
+            Instruction::ADD(_) => 1,
+
+            Instruction::SUB(ArithmeticTarget::D8) => 2,
+            Instruction::SUB(_) => 1,
+            Instruction::SBC(ArithmeticTarget::D8) => 2,
+            Instruction::SBC(_) => 1,
+
+            Instruction::AND(ArithmeticTarget::D8) => 2,
+            Instruction::AND(_) => 1,
+
+            Instruction::OR(ArithmeticTarget::D8) => 2,
+            Instruction::OR(_) => 1,
+
+            Instruction::XOR(ArithmeticTarget::D8) => 2,
+            Instruction::XOR(_) => 1,
+
+            Instruction::CP(ArithmeticTarget::D8) => 2,
+            Instruction::CP(_) => 1,
+
+            Instruction::ADDHL(_) => 1,
+            Instruction::INC(_) => 1,
+            Instruction::DEC(_) => 1,
+
+            Instruction::SRL(_) => 2,
+            Instruction::RR(_) => 2,
+            Instruction::RL(_) => 2,
+            Instruction::RRC(_) => 2,
+            Instruction::RLC(_) => 2,
+            Instruction::SRA(_) => 2,
+            Instruction::SLA(_) => 2,
+
+            Instruction::SWAP(_) => 2,
+
+            Instruction::BIT(_, _) => 2,
+            Instruction::RES(_, _) => 2,
+            Instruction::SET(_, _) => 2,
         }
     }
 }

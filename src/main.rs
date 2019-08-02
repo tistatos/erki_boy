@@ -2,10 +2,12 @@ extern crate minifb;
 
 use std::fs::File;
 use std::io::Read;
-use std::time::{Duration, Instant};
+use std::time::{Instant};
+use std::env;
 
 use erki_boy::cpu::CPU;
 use erki_boy::gpu::{ONE_FRAME_IN_CYCLES, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_PIXEL_COUNT};
+
 use minifb::{Key, Window, WindowOptions};
 
 const ONE_SECOND_IN_MICROS: usize = 1000000000;
@@ -13,8 +15,14 @@ const ONE_SECOND_IN_CYCLES: usize = 4190000;
 
 fn main() {
     let boot_rom_path = "./dmg_boot.bin";
-    let game_rom_path = "./tetris.gb";
-    //let game_rom_path = "./cpu_instrs.gb";
+    let args: Vec<String> = env::args().collect();
+
+    let game_rom_path = if args.len() == 2 {
+        &args[1]
+    }
+    else {
+        "./ROMS/cpu_instrs.gb"
+    };
 
     let mut boot_rom_file = File::open(boot_rom_path).expect("Missing boot ROM");
     let mut boot_rom = Vec::new();
@@ -67,6 +75,7 @@ fn main() {
             for k in keys {
                 match k {
                     Key::O => dmg_cpu.debug_output(),
+                    Key::D => dmg_cpu.bus.dump_memory_to_file(),
                     _ => {}
                 }
 

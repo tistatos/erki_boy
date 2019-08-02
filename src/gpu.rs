@@ -174,9 +174,6 @@ pub struct GPU {
     pub oam: [u8; OAM_SIZE],
     cycles: u16,
 
-    //LCD Control
-    pub lcd_display_enabled: bool, //LCD is complete on/off
-    pub lcd_y_compare: u8,
 
     pub background_window_tile_data: TileData, // location of tile data for background and window
     pub background_tile_map: TileMap,          //background tile map location
@@ -189,15 +186,16 @@ pub struct GPU {
     pub obj_display_enable: bool, //Obj display status
     pub obj_0_palette: Palette,
     pub obj_1_palette: Palette,
-
     pub obj_data: [ObjectData; OAM_NUMBER_OF_OBJECTS],
 
-    //LCD Status
-    //ly_coincidence_interrupt: bool,
-    //oam_interrupt: bool,
-    //vblank_interrupt: bool,
-    //hblank_interrupt: bool,
-    //coincidence_flag: bool,
+    //LCD Control
+    pub lcd_display_enabled: bool, //LCD is complete on/off
+    pub lcd_y_compare: u8,
+    pub lyc_interrupt_enabled: bool,
+    pub oam_interrupt_enabled: bool,
+    pub vblank_interrupt_enabled: bool,
+    pub hblank_interrupt_enabled: bool,
+    pub coincidence_flag: bool,
     pub lcd_y_coordinate: u8, //current line being drawn
     pub lcd_mode: Mode, // LCD current mode
 
@@ -217,21 +215,29 @@ impl GPU {
             video_ram: [0xFF; VIDEO_RAM_SIZE],
             oam: [0xFF; OAM_SIZE],
             cycles: 0,
-            lcd_display_enabled: false,
+
             background_window_tile_data: TileData::Ox8000,
             background_tile_map: TileMap::Ox9800,
             background_display_enabled: false,
             background_window_palette: Palette::new(),
+
+            tile_set: [empty_tile(); 384],
+
             obj_size: ObjSize::Size8x8,
             obj_display_enable: false,
             obj_0_palette: Palette::new(),
             obj_1_palette: Palette::new(),
             obj_data: [Default::default(); OAM_NUMBER_OF_OBJECTS],
-            tile_set: [empty_tile(); 384],
 
-            lcd_mode: Mode::HBlank,
-            lcd_y_coordinate: 0,
+            lcd_display_enabled: false,
             lcd_y_compare: 0,
+            lyc_interrupt_enabled: false,
+            vblank_interrupt_enabled: false,
+            hblank_interrupt_enabled: false,
+            oam_interrupt_enabled: false,
+            coincidence_flag: false,
+            lcd_y_coordinate: 0,
+            lcd_mode: Mode::HBlank,
 
             window_tile_map: TileMap::Ox9800,
             window_display_enabled: false,
@@ -242,9 +248,12 @@ impl GPU {
         }
     }
 
-    pub fn step(&mut self, cycles: u16) {
+    pub fn step(&mut self, cycles: u16) -> (bool, bool) {
+        let mut vblank_interrupt = false;
+        let mut lcd_c_interrupt = false;
+
         if !self.lcd_display_enabled {
-            return;
+            return (false, false);
         }
 
         self.cycles += cycles;
@@ -260,7 +269,9 @@ impl GPU {
                 if self.cycles >= 172 {
                     self.cycles = self.cycles % 172;
                     self.lcd_mode = Mode::HBlank;
-                    //TODO: add vram related interrupts
+                    if self.hblank_interrupt_enabled {
+                        lcd_c_interrupt = true;
+                    }
                     self.render_scanline();
                 }
             },
@@ -272,11 +283,16 @@ impl GPU {
 
                     if self.lcd_y_coordinate >= 144 {
                         self.lcd_mode = Mode::VBlank;
-                        //TODO: add vblank related interrupts
+                        vblank_interrupt = true;
+                        if self.vblank_interrupt_enabled {
+                            lcd_c_interrupt = true;
+                        }
                     }
                     else {
                         self.lcd_mode = Mode::OAMAccess;
-                        //TODO: add hblank related interrupts
+                        if self.oam_interrupt_enabled {
+                            lcd_c_interrupt = true;
+                        }
                     }
                 }
             },
@@ -288,11 +304,25 @@ impl GPU {
                     if self.lcd_y_coordinate == 154 {
                         self.lcd_mode = Mode::OAMAccess;
                         self.lcd_y_coordinate = 0;
-                        //TODO: add vblank related interrupts
+                        if self.oam_interrupt_enabled {
+                            lcd_c_interrupt = true;
+                        }
+                    }
+                }
+                if self.lyc_interrupt_enabled {
+                    if self.check_line_coincidence() {
+                        lcd_c_interrupt = true;
                     }
                 }
             }
         }
+
+        return (vblank_interrupt, lcd_c_interrupt);
+    }
+
+    pub fn check_line_coincidence(&mut self) -> bool {
+        self.coincidence_flag = self.lcd_y_coordinate == self.lcd_y_compare;
+        return self.coincidence_flag
     }
 
     pub fn write_vram(&mut self, address: usize, value: u8) {
