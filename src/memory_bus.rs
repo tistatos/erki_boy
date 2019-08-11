@@ -511,7 +511,10 @@ impl MemoryBus {
                 self.gpu.window_x = byte;
             }
 
-            0xFF4D => { /* GBC register */ }
+            0xFF4D => {
+                /* GBC register */
+                println!("FF4D writing {}", byte)
+            }
             0xFF4F => { /* GBC register */ }
 
             0xFF50 => {

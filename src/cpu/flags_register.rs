@@ -26,14 +26,12 @@ impl FlagsRegister {
 
 impl fmt::Display for FlagsRegister {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut values = format!("(");
+        let mut values = format!("");
         if self.zero { values += "Z"; } else { values += " ";}
         if self.subtract { values += "N"; } else { values += " ";}
         if self.half_carry { values += "H"; } else { values += " ";}
         if self.carry { values += "C"; } else { values += " ";}
-        values += ")";
-
-        write!(f, "{}", values)
+        write!(f, "{}", values.trim())
     }
 }
 impl fmt::Debug for FlagsRegister {
