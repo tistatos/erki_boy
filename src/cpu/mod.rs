@@ -68,9 +68,7 @@ impl CPU {
         let (next_pc, mut cycles) = if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed)
         {
             let (pc, cycles) = self.execute(instruction);
-            if self.bus.boot_rom.is_none() {
-                //self.debug_output();
-            }
+
             //FIXME: this should be simpler than this
             if instruction_byte != 0xF3 && instruction_byte != 0xFB {
                 self.interrupt_state = match self.interrupt_state {
