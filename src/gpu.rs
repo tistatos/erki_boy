@@ -76,6 +76,7 @@ impl Default for ObjectData {
     }
 }
 
+#[derive(Copy, Clone)]
 pub enum Mode {
     HBlank,
     VBlank,
@@ -258,7 +259,8 @@ impl GPU {
 
         self.cycles += cycles;
 
-        match self.lcd_mode {
+        let mode = self.lcd_mode;
+        match mode {
             Mode::OAMAccess => {
                 if self.cycles >= 80 {
                     self.lcd_mode = Mode::VRAMAccess;
@@ -294,6 +296,10 @@ impl GPU {
                             lcd_c_interrupt = true;
                         }
                     }
+                    if self.check_line_coincidence() &&
+                    self.lyc_interrupt_enabled {
+                        lcd_c_interrupt = true;
+                    }
                 }
             },
             Mode::VBlank => {
@@ -308,9 +314,7 @@ impl GPU {
                             lcd_c_interrupt = true;
                         }
                     }
-                }
-                if self.lyc_interrupt_enabled {
-                    if self.check_line_coincidence() {
+                    if self.check_line_coincidence() && self.lyc_interrupt_enabled {
                         lcd_c_interrupt = true;
                     }
                 }
@@ -405,9 +409,12 @@ impl GPU {
             let row_y_offset = tile_y_index % 8;
             let mut pixel_x_index = self.scroll_x % 8;
 
-            //if self.background_window_tile_data == TileData::Ox8800 {
-                //panic!("Unsupported window and tile data area");
-            //}
+            if self.background_tile_map == TileMap::Ox9C00 {
+                panic!("incorrect tile map");
+            }
+            if self.background_window_tile_data == TileData::Ox8800 {
+                panic!("Unsupported window and tile data area");
+            }
 
             let mut screen_buffer_offset =
                 self.lcd_y_coordinate as usize * SCREEN_WIDTH * 4;
@@ -431,9 +438,9 @@ impl GPU {
                 if pixel_x_index == 0 {
                     tile_x_index += 1;
                 }
-                //if self.background_window_tile_data == TileData::Ox8800 {
-                    //panic!("Unsupported window and tile data area");
-                //}
+                if self.background_window_tile_data == TileData::Ox8800 {
+                    panic!("Unsupported window and tile data area");
+                }
             }
         }
         if self.obj_display_enable {
@@ -485,7 +492,7 @@ impl GPU {
                                 self.screen_buffer[screen_offset + 2] = color as u8;
                                 self.screen_buffer[screen_offset + 3] = 255;
                             }
-                            screen_offset += 4;
+                        screen_offset += 4;
                     }
                 }
             }

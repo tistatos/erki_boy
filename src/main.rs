@@ -3,8 +3,9 @@ extern crate rusttype;
 
 use std::fs::File;
 use std::io::Read;
-use std::time::{Instant};
+use std::time::{Instant, Duration};
 use std::env;
+use std::thread::sleep;
 
 use erki_boy::cpu::CPU;
 use erki_boy::gpu::{ONE_FRAME_IN_CYCLES, SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_PIXEL_COUNT};
@@ -48,27 +49,34 @@ fn main() {
         WindowOptions::default()
         ).unwrap();
 
-    //window.set_key_repeat_delay(0.05);
-    //window.set_key_repeat_rate(0.5);
     let mut buffer = [0; SCREEN_PIXEL_COUNT + SCREEN_WIDTH * 48];
     let mut cycles_this_frame = 0usize;
     let mut now = Instant::now();
 
     let mut halt_execution = false;
     let mut step_execution = false;
+    let mut run_to_next_frame = false;
     let register_output = RegisterOutput::new();
+    let mut frames = 0;
+    let mut boot_unloaded = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
-        if !halt_execution || step_execution {
-            let mut cycles_elapsed = 0;
-            let time_delta = now.elapsed().subsec_nanos();
-            now = Instant::now();
-            let delta = time_delta as f64 / ONE_SECOND_IN_MICROS as f64;
-            let cycles_to_run = delta * ONE_SECOND_IN_CYCLES as f64;
+        let time_delta = now.elapsed().subsec_nanos();
+        now = Instant::now();
+        let delta = time_delta as f64 / ONE_SECOND_IN_MICROS as f64;
+        let cycles_to_run = delta * ONE_SECOND_IN_CYCLES as f64;
 
-            if !halt_execution {
+        if !halt_execution || step_execution || run_to_next_frame {
+
+            let mut cycles_elapsed = 0;
+
+            if !halt_execution || run_to_next_frame {
                 while cycles_elapsed <= cycles_to_run as usize {
                     cycles_elapsed += dmg_cpu.step() as usize;
+                    if !boot_unloaded && dmg_cpu.bus.boot_rom.is_none() {
+                        println!("Boot ROM unloaded on frame {}", frames);
+                        boot_unloaded = true;
+                    }
                 }
             }
             else {
@@ -95,18 +103,45 @@ fn main() {
                 }
                 window.update_with_buffer(&buffer).unwrap();
                 cycles_this_frame = 0;
+                frames += 1;
+                if run_to_next_frame {
+                    dmg_cpu.debug_output();
+                }
+                run_to_next_frame = false;
+            } else {
+                sleep(Duration::from_nanos(2))
             }
         }
         window.update();
 
+        dmg_cpu.bus.joypad.reset();
+        window.get_keys().map(|keys| {
+            for k in keys {
+                match k {
+                    Key::Up => dmg_cpu.bus.joypad.up(),
+                    Key::Down => dmg_cpu.bus.joypad.down(),
+                    Key::Left => dmg_cpu.bus.joypad.left(),
+                    Key::Right => dmg_cpu.bus.joypad.right(),
+
+                    Key::X => dmg_cpu.bus.joypad.b(),
+                    Key::Z => dmg_cpu.bus.joypad.a(),
+
+                    Key::Enter => dmg_cpu.bus.joypad.start(),
+                    Key::RightShift => dmg_cpu.bus.joypad.select(),
+                    _ => {}
+                }
+            }
+        });
+
         window.get_keys_pressed(KeyRepeat::Yes).map(|keys| {
             for k in keys {
                 match k {
-                    Key::O => dmg_cpu.debug_output(),
                     Key::S => {
                         step_execution = true;
                     },
-                    Key::D => dmg_cpu.bus.dump_memory_to_file(),
+                    Key::N => {
+                        run_to_next_frame = true;
+                    },
                     Key::F5 => {
                         halt_execution = !halt_execution;
                         if halt_execution {

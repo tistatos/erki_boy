@@ -1,5 +1,6 @@
 use crate::gpu::{ GPU, Mode, ObjSize, TileData, TileMap };
 use crate::interrupts::{Interrupts};
+use crate::joypad::{Joypad};
 use std::fs::{File};
 use std::io::prelude::*;
 
@@ -50,7 +51,7 @@ const UNUSED_END: usize = 0xFEFF;
 
 const ENABLE_INTERRUPTS: usize = 0xFFFF;
 
-enum TimerFrequency {
+pub enum TimerFrequency {
     F4096,
     F16384,
     F65536,
@@ -79,9 +80,9 @@ pub struct Timer {
 
 
 impl Timer {
-    pub fn new() -> Self {
+    pub fn new(frequency: TimerFrequency) -> Self {
         Timer {
-            frequency: TimerFrequency::F4096,
+            frequency: frequency,
             cycles: 0,
             value: 0,
             modulo: 0,
@@ -114,25 +115,7 @@ impl Timer {
 
 }
 
-pub struct Divider {
-    pub value: u8
-}
-
-impl Divider {
-    pub fn step(&mut self, cycles: u16) {
-        self.value = self.value.wrapping_add(cycles as u8);
-    }
-}
-
-//pub struct Joypad {
-/* use:
- * - bit 5 for button data
- * - bit 4 for dpad data
- * 3-0 bits are either dpad data or button data
- */
-//}
 //pub struct IO {
-//joypad: u8,
 //timer: u8,
 //dma: u8,
 //}
@@ -164,7 +147,9 @@ pub struct MemoryBus {
     high_ram: [u8; HRAM_SIZE],
 
     timer: Timer,
-    divider: Divider,
+    divider: Timer,
+
+    pub joypad: Joypad,
 
     pub interrupts_enabled: Interrupts,
     pub interrupt_flags: Interrupts,
@@ -191,6 +176,8 @@ impl MemoryBus {
         switchable_rom_bank.copy_from_slice(&game_rom_buffer[ROM_SWITCHABLE_BANK_START..=ROM_SWITCHABLE_BANK_END]);
 
 
+        let mut divider = Timer::new(TimerFrequency::F16384);
+        divider.active = true;
         MemoryBus {
             boot_rom,
             rom_bank,
@@ -202,36 +189,42 @@ impl MemoryBus {
             interrupts_enabled: Interrupts::new(),
             interrupt_flags: Interrupts::new(),
 
-            timer: Timer::new(),
-            divider: Divider{ value: 0 },
+            joypad: Joypad::new(),
+
+            timer: Timer::new(TimerFrequency::F4096),
+            divider,
             gpu: GPU::new(),
         }
     }
 
     pub fn step(&mut self, cycles: u16) {
         if self.timer.step(cycles) {
-            self.interrupt_flags.timer_interrupt = true;
+            self.interrupt_flags.timer = true;
         }
 
         self.divider.step(cycles);
 
         let (vblank, lcd) = self.gpu.step(cycles);
-        self.interrupt_flags.vertical_blank_interrupt = vblank;
-        self.interrupt_flags.lcd_c_interrupt = lcd;
+        if vblank {
+            self.interrupt_flags.vertical_blank = vblank;
+        }
+        if lcd {
+            self.interrupt_flags.lcd_c = lcd;
+        }
     }
 
     pub fn interrupted(&self) -> bool {
         return
-        (self.interrupts_enabled.vertical_blank_interrupt &&
-            self.interrupt_flags.vertical_blank_interrupt) ||
-        (self.interrupts_enabled.lcd_c_interrupt &&
-            self.interrupt_flags.lcd_c_interrupt) ||
-        (self.interrupts_enabled.timer_interrupt &&
-            self.interrupt_flags.timer_interrupt) ||
-        (self.interrupts_enabled.serial_transfer_interrupt &&
-            self.interrupt_flags.serial_transfer_interrupt) ||
-        (self.interrupts_enabled.control_interrupt &&
-            self.interrupt_flags.control_interrupt);
+        (self.interrupts_enabled.vertical_blank &&
+            self.interrupt_flags.vertical_blank) ||
+        (self.interrupts_enabled.lcd_c &&
+            self.interrupt_flags.lcd_c) ||
+        (self.interrupts_enabled.timer &&
+            self.interrupt_flags.timer) ||
+        (self.interrupts_enabled.serial_transfer &&
+            self.interrupt_flags.serial_transfer) ||
+        (self.interrupts_enabled.joypad &&
+            self.interrupt_flags.joypad);
     }
 
     pub fn read_byte(&self, address: u16) -> u8 {
@@ -307,7 +300,10 @@ impl MemoryBus {
 
     fn read_from_io(&self, address: usize) -> u8 {
         match address {
-            0xFF00 => { /* P1 - joy pad info */ }
+            0xFF00 => {
+                /* P1 - joy pad info */
+                return self.joypad.poll()
+            }
 
             0xFF01 => { /* SB - Serial transfer data */ }
             0xFF02 => { /* SC - Serial transfer control */ }
@@ -347,10 +343,12 @@ impl MemoryBus {
                 };
 
                 return
+                    0b10000000 |
                     (self.gpu.lyc_interrupt_enabled as u8) << 6 |
                     (self.gpu.oam_interrupt_enabled as u8) << 5 |
                     (self.gpu.vblank_interrupt_enabled as u8) << 4 |
                     (self.gpu.hblank_interrupt_enabled as u8) << 3 |
+                    (self.gpu.coincidence_flag as u8) << 2 |
                     mode;
             }
             0xFF42 => { return self.gpu.scroll_y; }
@@ -373,11 +371,12 @@ impl MemoryBus {
                 /* P1 - joy pad info */
                 //let query_dpad = ((byte >> 4) & 0b1) == 1;
                 //let query_buttons = ((byte >> 5) & 0b1) == 1;
+                self.joypad.column = (byte & 0x20) == 0;
             }
 
             0xFF01 => {
                 /* SB - Serial transfer data */
-                self.interrupt_flags.serial_transfer_interrupt = true;
+                //self.interrupt_flags.serial_transfer_interrupt = true;
             }
             0xFF02 => { /* SC - Serial transfer control */ }
 
@@ -487,6 +486,14 @@ impl MemoryBus {
             }
             0xFF46 => {
                 /* DMA - DMA Transfer and Start Address Write only*/
+                let dma_source = (byte as u16) << 8;
+                let dma_destination = 0xFE00;
+                for offset in 0..150 {
+                    self.write_byte(
+                        dma_destination + offset,
+                        self.read_byte(dma_source + offset),
+                    )
+                }
             }
 
             0xFF47 => {
@@ -511,10 +518,7 @@ impl MemoryBus {
                 self.gpu.window_x = byte;
             }
 
-            0xFF4D => {
-                /* GBC register */
-                println!("FF4D writing {}", byte)
-            }
+            0xFF4D => { /* GBC register */ }
             0xFF4F => { /* GBC register */ }
 
             0xFF50 => {

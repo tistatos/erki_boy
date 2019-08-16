@@ -17,7 +17,7 @@ enum InterruptState {
 
 pub struct CPU {
     is_halted: bool,
-    interrupt_enabled: bool,
+    interrupt_state: InterruptState,
     pub pc: u16,
     pub sp: u16,
     pub registers: Registers,
@@ -29,7 +29,7 @@ impl CPU {
     pub fn new(boot_room: Option<Vec<u8>>, game_rom: Vec<u8>) -> CPU {
         CPU {
             is_halted: false,
-            interrupt_enabled: true,
+            interrupt_state: InterruptState::Enabled,
             bus: MemoryBus::new(boot_room, game_rom),
             pc: 0,
             sp: 0,
@@ -51,7 +51,6 @@ impl CPU {
             let instruction_length = instruction.byte_length();
             if instruction_length == 2{
                 output += format!(" {} ", self.read_next_byte()).as_str();
-
             }
             println!("{}\t {:?}, sp: 0x{:X}",
                     output, self.registers, self.sp);
@@ -68,7 +67,20 @@ impl CPU {
 
         let (next_pc, mut cycles) = if let Some(instruction) = Instruction::from_byte(instruction_byte, prefixed)
         {
-            self.execute(instruction)
+            let (pc, cycles) = self.execute(instruction);
+            if self.bus.boot_rom.is_none() {
+                //self.debug_output();
+            }
+            //FIXME: this should be simpler than this
+            if instruction_byte != 0xF3 && instruction_byte != 0xFB {
+                self.interrupt_state = match self.interrupt_state {
+                    InterruptState::Enabling => InterruptState::Enabled,
+                    InterruptState::Disabling => InterruptState::Disabled,
+                    InterruptState::Enabled => InterruptState::Enabled,
+                    InterruptState::Disabled => InterruptState::Disabled,
+                };
+            }
+            (pc, cycles)
         } else {
             let description = format!(
                 "0x{}{:x}",
@@ -87,27 +99,42 @@ impl CPU {
         }
 
         let mut interrupted = false;
-        if self.interrupt_enabled {
-            if self.bus.interrupts_enabled.vertical_blank_interrupt
-                && self.bus.interrupt_flags.vertical_blank_interrupt {
-                println!("VBlank interrupt");
+        if self.interrupt_state == InterruptState::Enabled {
+
+            if self.bus.interrupts_enabled.vertical_blank
+                && self.bus.interrupt_flags.vertical_blank {
+                //println!("VBlank interrupt");
                 interrupted = true;
-                self.bus.interrupt_flags.vertical_blank_interrupt = false;
+                self.bus.interrupt_flags.vertical_blank = false;
                 self.interrupt(InterruptLocation::VBlank);
             }
-            if self.bus.interrupts_enabled.lcd_c_interrupt
-                && self.bus.interrupt_flags.lcd_c_interrupt {
+            if self.bus.interrupts_enabled.lcd_c
+                && self.bus.interrupt_flags.lcd_c {
                 println!("LCD interrupt");
                 interrupted = true;
-                self.bus.interrupt_flags.lcd_c_interrupt = false;
+                self.bus.interrupt_flags.lcd_c = false;
                 self.interrupt(InterruptLocation::LCD);
             }
-            if self.bus.interrupts_enabled.timer_interrupt
-                && self.bus.interrupt_flags.timer_interrupt {
+            if self.bus.interrupts_enabled.timer
+                && self.bus.interrupt_flags.timer {
                 println!("timer interrupt");
                 interrupted = true;
-                self.bus.interrupt_flags.timer_interrupt = false;
+                self.bus.interrupt_flags.timer = false;
                 self.interrupt(InterruptLocation::Timer);
+            }
+            if self.bus.interrupts_enabled.serial_transfer
+                && self.bus.interrupt_flags.serial_transfer {
+                println!("serial interrupt");
+                interrupted = true;
+                self.bus.interrupt_flags.serial_transfer = false;
+                self.interrupt(InterruptLocation::Serial);
+            }
+            if self.bus.interrupts_enabled.joypad
+                && self.bus.interrupt_flags.joypad {
+                println!("joypad interrupt");
+                interrupted = true;
+                self.bus.interrupt_flags.joypad = false;
+                self.interrupt(InterruptLocation::Joypad);
             }
         }
         if interrupted {
@@ -134,7 +161,7 @@ impl CPU {
     }
 
     fn interrupt(&mut self, location: InterruptLocation) {
-        self.interrupt_enabled = false;
+        self.interrupt_state = InterruptState::Disabled;
         self.push(self.pc);
         self.pc = location as u16;
         self.bus.step(12);
@@ -211,23 +238,20 @@ impl CPU {
                 (self.pc.wrapping_add(1), 4)
             }
             Instruction::STOP => {
-                if !self.is_halted {
-                    println!("STOP called at 0x{:X}", self.pc+1);
-                }
                 self.is_halted = true; //FIXME: perhaps this should have its own state?
                 (self.pc.wrapping_add(1), 4)
             }
             Instruction::EI => {
-                self.interrupt_enabled = true;
+                self.interrupt_state = InterruptState::Enabling;
                 (self.pc.wrapping_add(1), 4)
             }
             Instruction::DI => {
-                self.interrupt_enabled = false;
+                self.interrupt_state = InterruptState::Disabling;
                 (self.pc.wrapping_add(1), 4)
             }
             Instruction::RETI => {
                 let pc = self.pop();
-                self.interrupt_enabled = true;
+                self.interrupt_state = InterruptState::Enabled;
                 (pc, 16)
             }
             Instruction::RST(offset) => (self.restart(offset), 16),
@@ -419,14 +443,14 @@ impl CPU {
                     }
                 }
                 LoadType::ByteAddressFromA => {
-                    let address_offset = self.read_next_byte();
-                    let address = 0xFF00 + address_offset as u16;
+                    let address_offset = self.read_next_byte() as u16;
+                    let address = 0xFF00 + address_offset;
                     self.bus.write_byte(address, self.registers.a);
                     (self.pc.wrapping_add(2), 12)
                 }
                 LoadType::AFromByteAddress => {
-                    let address_offset = self.read_next_byte();
-                    let address = 0xFF00 + address_offset as u16;
+                    let address_offset = self.read_next_byte() as u16;
+                    let address = 0xFF00 + address_offset;
                     self.registers.a = self.bus.read_byte(address);
                     (self.pc.wrapping_add(2), 12)
                 }
@@ -1358,6 +1382,8 @@ impl CPU {
             value
         };
 
+        self.registers.f.zero = result == 0;
+        self.registers.f.half_carry = false;
         self.registers.f.carry = carry;
         result
     }
@@ -1564,7 +1590,7 @@ impl CPU {
 
     fn shift_right_arithmetic(&mut self, value: u8) -> u8 {
         let msb = value & 0x80;
-        let new_value = msb | value >> 1;
+        let new_value = msb | (value >> 1);
 
         self.registers.f.zero = new_value == 0;
         self.registers.f.subtract = false;
