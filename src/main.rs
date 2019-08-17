@@ -57,8 +57,6 @@ fn main() {
     let mut step_execution = false;
     let mut run_to_next_frame = false;
     let register_output = RegisterOutput::new();
-    let mut frames = 0;
-    let mut boot_unloaded = false;
 
     while window.is_open() && !window.is_key_down(Key::Escape) {
         let time_delta = now.elapsed().subsec_nanos();
@@ -73,10 +71,6 @@ fn main() {
             if !halt_execution || run_to_next_frame {
                 while cycles_elapsed <= cycles_to_run as usize {
                     cycles_elapsed += dmg_cpu.step() as usize;
-                    if !boot_unloaded && dmg_cpu.bus.boot_rom.is_none() {
-                        println!("Boot ROM unloaded on frame {}", frames);
-                        boot_unloaded = true;
-                    }
                 }
             }
             else {
@@ -103,7 +97,6 @@ fn main() {
                 }
                 window.update_with_buffer(&buffer).unwrap();
                 cycles_this_frame = 0;
-                frames += 1;
                 if run_to_next_frame {
                     dmg_cpu.debug_output();
                 }
