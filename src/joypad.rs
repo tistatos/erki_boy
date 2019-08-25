@@ -36,18 +36,19 @@ impl Joypad {
     pub fn poll(&self) -> u8 {
         let result = if self.column {
             let button_bit = (1 as u8) << 5;
-            let start_bit = !(self.start as u8) << 3;
-            let select_bit = !(self.select as u8) << 2;
-            let b_bit = !(self.b as u8) << 1;
+            let start_bit = (!self.start as u8) << 3;
+            let select_bit = (!self.select as u8) << 2;
+            let b_bit = (!self.b as u8) << 1;
             let a_bit = !self.a as u8;
 
-            button_bit | start_bit | select_bit | b_bit | a_bit
+            let result = button_bit | start_bit | select_bit | b_bit | a_bit;
+            result
         }
         else {
             let dpad_bit = 1 << 4;
-            let down_bit = !(self.down as u8) << 3;
-            let up_bit = !(self.up as u8) << 2;
-            let left_bit = !(self.left as u8) << 1;
+            let down_bit = (!self.down as u8) << 3;
+            let up_bit = (!self.up as u8) << 2;
+            let left_bit = (!self.left as u8) << 1;
             let right_bit = !self.right as u8;
 
             dpad_bit | down_bit | up_bit | left_bit | right_bit
